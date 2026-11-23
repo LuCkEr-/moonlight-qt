@@ -10,6 +10,9 @@
 #ifdef HAS_X11
 #include <SDL_syswm.h>
 #include <X11/Xlib.h>
+#ifdef None
+#undef None
+#endif
 #endif
 
 #ifdef HAVE_FFMPEG
