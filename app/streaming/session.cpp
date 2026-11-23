@@ -7,6 +7,11 @@
 #include "SDL_compat.h"
 #include "utils.h"
 
+#ifdef HAS_X11
+#include <SDL_syswm.h>
+#include <X11/Xlib.h>
+#endif
+
 #ifdef HAVE_FFMPEG
 #include "video/ffmpeg.h"
 #endif
@@ -574,6 +579,10 @@ Session::Session(NvComputer* computer, NvApp& app, StreamingPreferences *prefere
       m_DecoderLock(SDL_CreateMutex()),
       m_AudioMuted(false),
       m_QtWindow(nullptr),
+      m_CoopPaneWindow(0),
+      m_CoopPaneWidth(0),
+      m_CoopPaneHeight(0),
+      m_CoopWorker(false),
       m_UnexpectedTermination(true), // Failure prior to streaming is unexpected
       m_InputHandler(nullptr),
       m_MouseEmulationRefCount(0),
@@ -586,6 +595,16 @@ Session::Session(NvComputer* computer, NvApp& app, StreamingPreferences *prefere
       m_AudioSampleCount(0),
       m_DropAudioEndTime(0)
 {
+    bool paneOk = false;
+    m_CoopPaneWindow = qEnvironmentVariable("MOONLIGHT_COOP_PANE").toULongLong(&paneOk, 0);
+    m_CoopPaneWidth = qEnvironmentVariableIntValue("MOONLIGHT_COOP_WIDTH");
+    m_CoopPaneHeight = qEnvironmentVariableIntValue("MOONLIGHT_COOP_HEIGHT");
+    m_CoopWorker = paneOk && m_CoopPaneWindow != 0;
+    if (m_CoopWorker) {
+        // A worker's SDL window is a child of the coordinator pane, so it must
+        // never enter a display-wide fullscreen mode or quit the host app.
+        m_IsFullScreen = false;
+    }
 }
 
 Session::~Session()
@@ -1318,9 +1337,64 @@ private:
     Session* m_Session;
 };
 
+bool Session::embedInCoopPane()
+{
+    if (!m_CoopWorker) {
+        return true;
+    }
+
+#ifdef HAS_X11
+    SDL_SysWMinfo wmInfo;
+    SDL_VERSION(&wmInfo.version);
+    if (!SDL_GetWindowWMInfo(m_Window, &wmInfo) || wmInfo.subsystem != SDL_SYSWM_X11) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                     "Co-op worker requires an X11 SDL window: %s",
+                     SDL_GetError());
+        return false;
+    }
+
+    Display* display = wmInfo.info.x11.display;
+    Window parent = static_cast<Window>(m_CoopPaneWindow);
+    Window child = wmInfo.info.x11.window;
+    XWindowAttributes attributes;
+    if (display == nullptr || !XGetWindowAttributes(display, parent, &attributes)) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                     "Unable to inspect co-op pane window 0x%llx",
+                     static_cast<unsigned long long>(m_CoopPaneWindow));
+        return false;
+    }
+
+    int width = attributes.width > 0 ? attributes.width : m_CoopPaneWidth;
+    int height = attributes.height > 0 ? attributes.height : m_CoopPaneHeight;
+    if (width <= 0 || height <= 0) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                     "Co-op pane has invalid dimensions %dx%d",
+                     width, height);
+        return false;
+    }
+
+    XReparentWindow(display, child, parent, 0, 0);
+    XResizeWindow(display, child, static_cast<unsigned int>(width), static_cast<unsigned int>(height));
+    SDL_ShowWindow(m_Window);
+    XFlush(display);
+    return true;
+#else
+    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                 "Co-op worker requires an X11-enabled Moonlight build");
+    return false;
+#endif
+}
+
 void Session::getWindowDimensions(int& x, int& y,
                                   int& width, int& height)
 {
+    if (m_CoopWorker) {
+        x = y = 0;
+        width = m_CoopPaneWidth > 0 ? m_CoopPaneWidth : m_StreamConfig.width;
+        height = m_CoopPaneHeight > 0 ? m_CoopPaneHeight : m_StreamConfig.height;
+        return;
+    }
+
     int displayIndex = 0;
 
     if (m_Window != nullptr) {
@@ -1756,7 +1830,7 @@ void Session::setShouldExit(bool quitHostApp)
     // override whatever the preferences say and do it. If the
     // caller doesn't override to force quit, let the preferences
     // dictate what we do.
-    if (quitHostApp) {
+    if (quitHostApp && !m_CoopWorker) {
         m_Preferences->quitAppAfter = true;
     }
 
@@ -1832,6 +1906,11 @@ void Session::exec()
 
     // We always want a resizable window with High DPI enabled
     Uint32 defaultWindowFlags = SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_RESIZABLE;
+    if (m_CoopWorker) {
+        // Do not expose a worker as an independent top-level surface while it
+        // is waiting to be attached to the coordinator pane.
+        defaultWindowFlags |= SDL_WINDOW_HIDDEN | SDL_WINDOW_BORDERLESS;
+    }
 
     // If we're starting in windowed mode and the Moonlight GUI is maximized or
     // minimized, match that with the streaming window.
@@ -1895,6 +1974,13 @@ void Session::exec()
 
     m_InputHandler->setWindow(m_Window);
 
+    if (!embedInCoopPane()) {
+        emit displayLaunchError(tr("Unable to attach the stream to its co-op pane."));
+        SDL_Event quitEvent = {};
+        quitEvent.type = SDL_QUIT;
+        SDL_PushEvent(&quitEvent);
+    }
+
     QSvgRenderer svgIconRenderer(QString(":/res/moonlight.svg"));
     QImage svgImage(ICON_SIZE, ICON_SIZE, QImage::Format_RGBA8888);
     svgImage.fill(0);
@@ -1927,6 +2013,7 @@ void Session::exec()
 
     bool needsFirstEnterCapture = false;
     bool needsPostDecoderCreationCapture = false;
+    bool coopWindowReadyEmitted = false;
 
     // Avoid capturing the mouse initially for windowed relative mode.
     // We still capture in windowed absolute mode because it doesn't
@@ -2238,6 +2325,18 @@ void Session::exec()
                                  "Failed to recreate decoder after reset");
                     emit displayLaunchError(tr("Unable to initialize video decoder. Please check your streaming settings and try again."));
                     goto DispatchDeferredCleanup;
+                }
+
+                if (m_CoopWorker) {
+                    if (!embedInCoopPane()) {
+                        SDL_UnlockMutex(m_DecoderLock);
+                        emit displayLaunchError(tr("Unable to attach the stream to its co-op pane."));
+                        goto DispatchDeferredCleanup;
+                    }
+                    if (!coopWindowReadyEmitted) {
+                        coopWindowReadyEmitted = true;
+                        emit streamWindowReady();
+                    }
                 }
 
                 // As of SDL 2.0.12, SDL_RecreateWindow() doesn't carry over mouse capture

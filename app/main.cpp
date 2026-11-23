@@ -13,6 +13,7 @@
 #include <QElapsedTimer>
 #include <QTemporaryFile>
 #include <QRegularExpression>
+#include <QTextStream>
 
 #ifdef Q_OS_UNIX
 #include <sys/socket.h>
@@ -52,6 +53,8 @@
 #include "backend/computermanager.h"
 #include "backend/systemproperties.h"
 #include "streaming/session.h"
+#include "streaming/couchcoop.h"
+#include "streaming/couchcoopworker.h"
 #include "settings/streamingpreferences.h"
 #include "gui/sdlgamepadkeynavigation.h"
 
@@ -424,6 +427,23 @@ void configureSignalHandlers()
 
 int main(int argc, char *argv[])
 {
+#ifdef Q_OS_LINUX
+    // Gamescope exposes an Xwayland display for legacy fullscreen clients.
+    // Prefer it for Moonlight there so couch co-op can embed its two SDL
+    // windows while leaving native Wayland desktops on their normal backend.
+    const QString requestedPlatform = qEnvironmentVariable("QT_QPA_PLATFORM");
+    if ((requestedPlatform.isEmpty() || requestedPlatform.startsWith("wayland")) &&
+        !qEnvironmentVariableIsEmpty("DISPLAY") &&
+        qEnvironmentVariable("XDG_CURRENT_DESKTOP").contains("gamescope", Qt::CaseInsensitive)) {
+        qputenv("QT_QPA_PLATFORM", "xcb");
+    }
+#endif
+
+    if (argc > 1 && QString::fromLocal8Bit(argv[1]) == QStringLiteral("coop-worker")) {
+        qputenv("QT_QPA_PLATFORM", "xcb");
+        qputenv("SDL_VIDEODRIVER", "x11");
+    }
+
     SDL_SetMainReady();
 
     // Set the app version for the QCommandLineParser's showVersion() command
@@ -942,6 +962,7 @@ int main(int argc, char *argv[])
     // Register our C++ types for QML
     qmlRegisterType<ComputerModel>("ComputerModel", 1, 0, "ComputerModel");
     qmlRegisterType<AppModel>("AppModel", 1, 0, "AppModel");
+    qmlRegisterType<CouchCoop>("CouchCoop", 1, 0, "CouchCoop");
     qmlRegisterUncreatableType<Session>("Session", 1, 0, "Session", "Session cannot be created from QML");
     qmlRegisterSingletonType<ComputerManager>("ComputerManager", 1, 0,
                                               "ComputerManager",
@@ -971,6 +992,16 @@ int main(int argc, char *argv[])
 
     // Create the identity manager on the main thread
     IdentityManager::get();
+
+    if (commandLineParserResult == GlobalCommandLineParser::CoopWorkerRequested) {
+        CoopWorkerCommandLineParser workerParser;
+        QString errorMessage;
+        if (!workerParser.parse(app.arguments(), &errorMessage)) {
+            QTextStream(stdout) << "{\"error\":\"" << errorMessage.replace(QChar('"'), QChar('\'')) << "\"}" << Qt::endl;
+            return 1;
+        }
+        return runCouchCoopWorker(workerParser, StreamingPreferences::get());
+    }
 
     // We require the Material theme
     QQuickStyle::setStyle("Material");

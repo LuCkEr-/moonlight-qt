@@ -184,6 +184,12 @@ void SdlInputHandler::performSpecialKeyCombo(KeyCombo combo)
 
 void SdlInputHandler::handleKeyEvent(SDL_KeyboardEvent* event)
 {
+    // A couch co-op worker is dedicated to its controller. Keyboard input is
+    // owned by the coordinator so it cannot leak into either host session.
+    if (!m_CoopControllerPath.isEmpty()) {
+        return;
+    }
+
     short keyCode;
     char modifiers;
     char flags;

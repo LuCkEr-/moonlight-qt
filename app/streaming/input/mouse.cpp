@@ -6,6 +6,10 @@
 
 void SdlInputHandler::notifyMouseLeave()
 {
+    if (!m_CoopControllerPath.isEmpty()) {
+        return;
+    }
+
     if (m_NeedsManualCaptureOnLeave) {
         // SDL on Windows doesn't send the mouse button up until the mouse re-enters the window
         // after leaving it. This breaks some of the Aero snap gestures, so we'll capture it to
@@ -28,6 +32,10 @@ void SdlInputHandler::notifyMouseLeave()
 
 void SdlInputHandler::handleMouseButtonEvent(SDL_MouseButtonEvent* event)
 {
+    if (!m_CoopControllerPath.isEmpty()) {
+        return;
+    }
+
     int button;
 
     if (event->which == SDL_TOUCH_MOUSEID) {
@@ -92,6 +100,10 @@ void SdlInputHandler::handleMouseButtonEvent(SDL_MouseButtonEvent* event)
 
 void SdlInputHandler::handleMouseMotionEvent(SDL_MouseMotionEvent* event)
 {
+    if (!m_CoopControllerPath.isEmpty()) {
+        return;
+    }
+
     if (!isCaptureActive()) {
         // Not capturing
         return;
@@ -180,6 +192,10 @@ void SdlInputHandler::handleMouseMotionEvent(SDL_MouseMotionEvent* event)
 
 void SdlInputHandler::handleMouseWheelEvent(SDL_MouseWheelEvent* event)
 {
+    if (!m_CoopControllerPath.isEmpty()) {
+        return;
+    }
+
     if (!isCaptureActive()) {
         // Not capturing
         return;

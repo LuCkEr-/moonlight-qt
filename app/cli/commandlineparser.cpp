@@ -192,11 +192,64 @@ GlobalCommandLineParser::ParseResult GlobalCommandLineParser::parse(const QStrin
                 return PairRequested;
             } else if (action == "list") {
                 return ListRequested;
+            } else if (action == "coop-worker") {
+                return CoopWorkerRequested;
             }
         }
 
         parser.showError("Invalid action");
     }
+}
+
+bool CoopWorkerCommandLineParser::parse(const QStringList &args, QString* errorMessage)
+{
+    auto fail = [errorMessage](const QString& message) {
+        if (errorMessage != nullptr) {
+            *errorMessage = message;
+        }
+        return false;
+    };
+
+    // The worker is an internal entry point. Keep its positional interface
+    // deliberately strict so a parent can rely on failures being reported
+    // through the worker protocol rather than opening a dialog.
+    const QStringList positional = args.mid(1);
+    if (positional.size() != 7 || positional.at(0) != "coop-worker") {
+        return fail("Expected: coop-worker <host UUID> <app ID> <pane XID> <width> <height> <controller path>");
+    }
+
+    bool ok = false;
+    const int appId = positional.at(2).toInt(&ok);
+    if (!ok || appId <= 0) {
+        return fail("Invalid app ID");
+    }
+
+    quint64 pane = positional.at(3).toULongLong(&ok, 0);
+    if (!ok || pane == 0) {
+        return fail("Invalid pane XID");
+    }
+
+    const int width = positional.at(4).toInt(&ok);
+    if (!ok || width <= 0) {
+        return fail("Invalid pane width");
+    }
+
+    const int height = positional.at(5).toInt(&ok);
+    if (!ok || height <= 0) {
+        return fail("Invalid pane height");
+    }
+
+    if (positional.at(6).isEmpty()) {
+        return fail("Controller path is empty");
+    }
+
+    m_Host = positional.at(1);
+    m_AppId = appId;
+    m_Pane = pane;
+    m_Width = width;
+    m_Height = height;
+    m_ControllerPath = positional.at(6);
+    return true;
 }
 
 QuitCommandLineParser::QuitCommandLineParser()

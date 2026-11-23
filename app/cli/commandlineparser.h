@@ -14,6 +14,7 @@ public:
         QuitRequested,
         PairRequested,
         ListRequested,
+        CoopWorkerRequested,
     };
 
     GlobalCommandLineParser();
@@ -21,6 +22,27 @@ public:
 
     ParseResult parse(const QStringList &args);
 
+};
+
+class CoopWorkerCommandLineParser
+{
+public:
+    bool parse(const QStringList &args, QString* errorMessage = nullptr);
+
+    QString getHost() const { return m_Host; }
+    int getAppId() const { return m_AppId; }
+    quint64 getPane() const { return m_Pane; }
+    int getWidth() const { return m_Width; }
+    int getHeight() const { return m_Height; }
+    QString getControllerPath() const { return m_ControllerPath; }
+
+private:
+    QString m_Host;
+    int m_AppId = 0;
+    quint64 m_Pane = 0;
+    int m_Width = 0;
+    int m_Height = 0;
+    QString m_ControllerPath;
 };
 
 class QuitCommandLineParser

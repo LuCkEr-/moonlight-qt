@@ -1,4 +1,5 @@
 #include "streaming/session.h"
+#include "streaming/input/coopcontrollers.h"
 
 #include <Limelight.h>
 #include "SDL_compat.h"
@@ -41,7 +42,9 @@ SdlInputHandler::findStateForGamepad(SDL_JoystickID id)
     int i;
 
     for (i = 0; i < MAX_GAMEPADS; i++) {
-        if (m_GamepadState[i].jsId == id) {
+        // Empty slots are zero-initialized, and SDL may legitimately assign
+        // joystick instance ID 0. Require an open controller before matching.
+        if (m_GamepadState[i].controller != nullptr && m_GamepadState[i].jsId == id) {
             SDL_assert(!m_MultiController || m_GamepadState[i].index == i);
             return &m_GamepadState[i];
         }
@@ -514,6 +517,13 @@ void SdlInputHandler::handleControllerDeviceEvent(SDL_ControllerDeviceEvent* eve
         const char* mapping;
         char guidStr[33];
         uint32_t hapticCaps;
+
+        // A co-op worker owns one physical controller. Filter before opening
+        // the device so it cannot receive input from another worker.
+        if (!m_CoopControllerPath.isEmpty() &&
+            CoopControllers::pathForDeviceIndex(event->which) != m_CoopControllerPath) {
+            return;
+        }
 
         controller = SDL_GameControllerOpen(event->which);
         if (controller == NULL) {
@@ -1055,6 +1065,11 @@ int SdlInputHandler::getAttachedGamepadMask()
     int numJoysticks = SDL_NumJoysticks();
     for (int i = 0; i < numJoysticks; i++) {
         if (SDL_IsGameController(i)) {
+            if (!m_CoopControllerPath.isEmpty() &&
+                CoopControllers::pathForDeviceIndex(i) != m_CoopControllerPath) {
+                continue;
+            }
+
             char guidStr[33];
             SDL_JoystickGetGUIDString(SDL_JoystickGetDeviceGUID(i),
                                       guidStr, sizeof(guidStr));

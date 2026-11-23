@@ -9,6 +9,7 @@ import AutoUpdateChecker 1.0
 import StreamingPreferences 1.0
 import SystemProperties 1.0
 import SdlGamepadKeyNavigation 1.0
+import CouchCoop 1.0
 
 ApplicationWindow {
     property bool pollingActive: false
@@ -21,6 +22,20 @@ ApplicationWindow {
     id: window
     width: 1280
     height: 600
+
+    CouchCoop {
+        id: couchCoop
+    }
+
+    Connections {
+        target: couchCoop
+
+        onActiveChanged: {
+            if (!couchCoop.active) {
+                SdlGamepadKeyNavigation.enable()
+            }
+        }
+    }
 
     // This function runs prior to creation of the initial StackView item
     function doEarlyInit() {
@@ -341,6 +356,31 @@ ApplicationWindow {
 
                 onClicked: {
                     addPcDialog.open()
+                }
+
+                Keys.onDownPressed: {
+                    stackView.currentItem.forceActiveFocus(Qt.TabFocus)
+                }
+            }
+
+            NavigableToolButton {
+                id: couchCoopButton
+                visible: stackView.currentItem instanceof PcView && couchCoop.supported && !couchCoop.active
+                iconSource: "qrc:/res/ic_videogame_asset_white_48px.svg"
+                text: qsTr("Couch co-op")
+
+                ToolTip.delay: 1000
+                ToolTip.timeout: 3000
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("Stream two PCs at the same time")
+
+                onClicked: {
+                    var component = Qt.createComponent("CouchCoopView.qml")
+                    var page = component.createObject(stackView, {
+                        "coop": couchCoop,
+                        "mainWindow": window
+                    })
+                    stackView.push(page)
                 }
 
                 Keys.onDownPressed: {

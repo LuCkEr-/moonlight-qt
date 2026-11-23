@@ -209,6 +209,10 @@ private:
     bool m_SwapMouseButtons;
     bool m_ReverseScrollDirection;
     bool m_SwapFaceButtons;
+    // When set, only this SDL joystick path is routed to the streaming host.
+    // It is intentionally a path rather than a VID/PID or name because two
+    // identical controllers are common in couch co-op setups.
+    QString m_CoopControllerPath;
 
     bool m_NeedsManualCaptureOnLeave;
     bool m_MouseWasInVideoRegion;

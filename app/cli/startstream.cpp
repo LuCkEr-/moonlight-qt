@@ -143,7 +143,9 @@ public:
     int getAppIndex() const
     {
         for (int i = 0; i < m_Computer->appList.length(); i++) {
-            if (m_Computer->appList[i].name.toLower() == m_AppName.toLower()) {
+            const NvApp& app = m_Computer->appList[i];
+            if (app.name.toLower() == m_AppName.toLower() ||
+                    QString::number(app.id) == m_AppName) {
                 return i;
             }
         }

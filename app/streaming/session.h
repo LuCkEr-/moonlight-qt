@@ -132,6 +132,10 @@ signals:
 
     void connectionStarted();
 
+    // Emitted by the streaming worker after its SDL window has been attached
+    // to the coordinator's native X11 pane.
+    void streamWindowReady();
+
     void displayLaunchError(QString text);
 
     void quitStarting();
@@ -170,6 +174,8 @@ private:
     void notifyMouseEmulationMode(bool enabled);
 
     void updateOptimalWindowDisplayMode();
+
+    bool embedInCoopPane();
 
     enum class DecoderAvailability {
         None,
@@ -257,6 +263,10 @@ private:
     bool m_AudioMuted;
     Uint32 m_FullScreenFlag;
     QQuickWindow* m_QtWindow;
+    quint64 m_CoopPaneWindow;
+    int m_CoopPaneWidth;
+    int m_CoopPaneHeight;
+    bool m_CoopWorker;
     bool m_UnexpectedTermination;
     SdlInputHandler* m_InputHandler;
     int m_MouseEmulationRefCount;
