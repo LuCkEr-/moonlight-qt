@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QByteArray>
+#include <QPointer>
 #include <QProcess>
 #include <QQuickWindow>
 #include <QVariantList>
@@ -69,9 +70,10 @@ private:
     QVariantList m_Controllers;
     QTimer* m_ControllerRefreshTimer = nullptr;
     QList<Worker*> m_Workers;
-    QQuickWindow* m_Window = nullptr;
+    QPointer<QQuickWindow> m_Window;
     bool m_Active = false;
     bool m_Stopping = false;
+    quint64 m_StopGeneration = 0;
     bool m_WindowWasFullScreen = false;
     bool m_WindowWasMaximized = false;
 };

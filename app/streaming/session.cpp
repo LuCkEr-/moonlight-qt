@@ -563,7 +563,7 @@ bool Session::populateDecoderProperties(SDL_Window* window)
         m_StreamConfig.colorRange = decoder->getDecoderColorRange();
     }
 
-    if (decoder->isAlwaysFullScreen()) {
+    if (!m_CoopWorker && decoder->isAlwaysFullScreen()) {
         m_IsFullScreen = true;
     }
 

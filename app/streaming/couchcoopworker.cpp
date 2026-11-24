@@ -57,6 +57,9 @@ int runCouchCoopWorker(const CoopWorkerCommandLineParser& parser,
     preferences->backgroundGamepad = true;
     preferences->muteOnFocusLoss = false;
     preferences->multiController = false;
+    // A worker owns controller gameplay input only. Do not let the Start-button
+    // long-press path synthesize mouse events for the host session.
+    preferences->gamepadMouse = false;
 
     auto* manager = new ComputerManager(preferences);
     manager->setParent(application);

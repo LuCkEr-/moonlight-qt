@@ -30,7 +30,26 @@ CouchCoop::CouchCoop(QObject* parent)
 
 CouchCoop::~CouchCoop()
 {
-    stop();
+    // QProcess does not terminate its child when it is destroyed. Wait for
+    // workers here so closing Moonlight cannot orphan either Sunshine stream.
+    m_Stopping = true;
+    for (Worker* worker : std::as_const(m_Workers)) {
+        if (worker->process == nullptr) {
+            continue;
+        }
+        worker->process->disconnect(this);
+        if (worker->process->state() == QProcess::NotRunning) {
+            continue;
+        }
+        worker->process->terminate();
+        if (!worker->process->waitForFinished(1500)) {
+            worker->process->kill();
+            worker->process->waitForFinished(500);
+        }
+    }
+    if (!m_Workers.isEmpty()) {
+        clearPanes();
+    }
 }
 
 bool CouchCoop::supported() const
@@ -185,6 +204,9 @@ bool CouchCoop::start(QQuickWindow* window,
     if (m_Active || window == nullptr) {
         return false;
     }
+
+    // Invalidate any delayed kill callback left by a previous stop.
+    ++m_StopGeneration;
 
     NvComputer* leftComputer;
     NvComputer* rightComputer;
@@ -394,9 +416,13 @@ void CouchCoop::workerFinished(int exitCode, QProcess::ExitStatus status)
     }
     worker->finished = true;
     if (!m_Stopping) {
-        if (status != QProcess::NormalExit || exitCode != 0) {
+        if (status != QProcess::NormalExit || exitCode != 0 || !worker->ready) {
             const QString error = QString::fromLocal8Bit(process->readAllStandardError()).trimmed();
-            failAndStop(error.isEmpty() ? tr("A couch co-op stream stopped unexpectedly.") : error);
+            failAndStop(error.isEmpty()
+                        ? (worker->ready
+                           ? tr("A couch co-op stream stopped unexpectedly.")
+                           : tr("A couch co-op stream failed before its video window was ready."))
+                        : error);
         }
         else {
             // A normal disconnect from either host ends the paired layout.
@@ -493,12 +519,16 @@ void CouchCoop::stop()
         return;
     }
     m_Stopping = true;
+    const quint64 stopGeneration = ++m_StopGeneration;
     for (Worker* worker : std::as_const(m_Workers)) {
         if (worker->process != nullptr && worker->process->state() != QProcess::NotRunning) {
             worker->process->terminate();
         }
     }
-    QTimer::singleShot(1500, this, [this]() {
+    QTimer::singleShot(1500, this, [this, stopGeneration]() {
+        if (stopGeneration != m_StopGeneration) {
+            return;
+        }
         for (Worker* worker : std::as_const(m_Workers)) {
             if (worker->process != nullptr && worker->process->state() != QProcess::NotRunning) {
                 worker->process->kill();

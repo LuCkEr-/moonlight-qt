@@ -17,6 +17,7 @@ Item {
     property int rightAppId: -1
     property string leftControllerPath: ""
     property string rightControllerPath: ""
+    property string pendingFailureMessage: ""
 
     id: page
     objectName: qsTr("Couch Co-op")
@@ -102,8 +103,16 @@ Item {
         }
         restoreHostSelection(leftHostCombo, leftHostUuid)
         restoreHostSelection(rightHostCombo, rightHostUuid)
-        restoreAppSelection(leftAppCombo, appsFor(leftHostUuid), leftAppId)
-        restoreAppSelection(rightAppCombo, appsFor(rightHostUuid), rightAppId)
+        var leftApps = appsFor(leftHostUuid)
+        var rightApps = appsFor(rightHostUuid)
+        if (!restoreAppSelection(leftAppCombo, leftApps, leftAppId)) {
+            leftAppId = leftAppCombo.currentIndex >= 0 && leftAppCombo.currentIndex < leftApps.length
+                    ? leftApps[leftAppCombo.currentIndex].id : -1
+        }
+        if (!restoreAppSelection(rightAppCombo, rightApps, rightAppId)) {
+            rightAppId = rightAppCombo.currentIndex >= 0 && rightAppCombo.currentIndex < rightApps.length
+                    ? rightApps[rightAppCombo.currentIndex].id : -1
+        }
     }
 
     function selectedHostIsValid(uuid) {
@@ -136,9 +145,15 @@ Item {
     }
 
     function showFailure(message) {
+        pendingFailureMessage = message
+        if (coop.active || page.StackView.status !== StackView.Active) {
+            return
+        }
         launchStarted = false
+        SdlGamepadKeyNavigation.setUiNavMode(true)
         SdlGamepadKeyNavigation.enable()
-        failureDialog.text = message
+        failureDialog.text = pendingFailureMessage
+        pendingFailureMessage = ""
         failureDialog.open()
     }
 
@@ -174,6 +189,9 @@ Item {
     StackView.onDeactivating: {
         if (coop.active) {
             coop.stop()
+            // The page is leaving the stack, so restore GUI controller
+            // navigation immediately while the worker processes terminate.
+            SdlGamepadKeyNavigation.enable()
         } else {
             SdlGamepadKeyNavigation.enable()
         }
@@ -203,10 +221,19 @@ Item {
         }
 
         onActiveChanged: {
-            if (!coop.active && launchStarted) {
+            if (!coop.active && (launchStarted || pendingFailureMessage !== "")) {
                 launchStarted = false
-                SdlGamepadKeyNavigation.setUiNavMode(false)
-                SdlGamepadKeyNavigation.enable()
+                if (page.StackView.status === StackView.Active) {
+                    SdlGamepadKeyNavigation.setUiNavMode(true)
+                    SdlGamepadKeyNavigation.enable()
+                    if (pendingFailureMessage !== "") {
+                        failureDialog.text = pendingFailureMessage
+                        pendingFailureMessage = ""
+                        failureDialog.open()
+                    }
+                } else {
+                    pendingFailureMessage = ""
+                }
             }
         }
     }
@@ -273,8 +300,12 @@ Item {
                 onCurrentIndexChanged: {
                     if (currentIndex >= 0 && currentIndex < coop.hosts.length) {
                         leftHostUuid = coop.hosts[currentIndex].uuid
+                        var apps = appsFor(leftHostUuid)
                         leftAppId = -1
-                        restoreAppSelection(leftAppCombo, appsFor(leftHostUuid), leftAppId)
+                        if (!restoreAppSelection(leftAppCombo, apps, leftAppId)) {
+                            leftAppId = leftAppCombo.currentIndex >= 0 && leftAppCombo.currentIndex < apps.length
+                                    ? apps[leftAppCombo.currentIndex].id : -1
+                        }
                     }
                 }
             }
@@ -288,8 +319,12 @@ Item {
                 onCurrentIndexChanged: {
                     if (currentIndex >= 0 && currentIndex < coop.hosts.length) {
                         rightHostUuid = coop.hosts[currentIndex].uuid
+                        var apps = appsFor(rightHostUuid)
                         rightAppId = -1
-                        restoreAppSelection(rightAppCombo, appsFor(rightHostUuid), rightAppId)
+                        if (!restoreAppSelection(rightAppCombo, apps, rightAppId)) {
+                            rightAppId = rightAppCombo.currentIndex >= 0 && rightAppCombo.currentIndex < apps.length
+                                    ? apps[rightAppCombo.currentIndex].id : -1
+                        }
                     }
                 }
             }
@@ -307,6 +342,8 @@ Item {
                     var apps = appsFor(leftHostUuid)
                     if (currentIndex >= 0 && currentIndex < apps.length) {
                         leftAppId = apps[currentIndex].id
+                    } else {
+                        leftAppId = -1
                     }
                 }
             }
@@ -321,6 +358,8 @@ Item {
                     var apps = appsFor(rightHostUuid)
                     if (currentIndex >= 0 && currentIndex < apps.length) {
                         rightAppId = apps[currentIndex].id
+                    } else {
+                        rightAppId = -1
                     }
                 }
             }
